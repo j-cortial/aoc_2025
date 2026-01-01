@@ -48,11 +48,12 @@ fn parse_input(input: &str) -> Input {
 
 type Binary = u16;
 
+fn bools_to_binary_impl(bools: impl Iterator<Item = bool>) -> Binary {
+    bools.fold(0, |acc, x| 2 * acc + if x { 1 } else { 0 })
+}
+
 fn bools_to_binary(bools: &[bool]) -> Binary {
-    bools
-        .iter()
-        .rev()
-        .fold(0, |acc, &x| 2 * acc + if x { 1 } else { 0 })
+    bools_to_binary_impl(bools.iter().copied().rev())
 }
 
 fn indices_to_binary(indices: &[usize]) -> Binary {
@@ -63,14 +64,13 @@ fn contains(combination: Binary, index: usize) -> bool {
     (combination >> index) % 2 == 1
 }
 
-fn compute_valid_combinations(buttons: &[Vec<usize>], lights: &[bool]) -> Vec<Binary> {
-    let expected = bools_to_binary(&lights);
+fn compute_valid_combinations(buttons: &[Binary], lights: Binary) -> Vec<Binary> {
     (0..(1 << buttons.len()))
         .filter(|&combination| {
             let actual = (0..buttons.len())
                 .filter(|&b| contains(combination, b))
-                .fold(0, |acc, x| acc ^ indices_to_binary(&buttons[x]));
-            actual == expected
+                .fold(0, |acc, x| acc ^ buttons[x]);
+            actual == lights
         })
         .collect()
 }
@@ -79,29 +79,38 @@ fn solve_part1(input: &Input) -> impl Display {
     input
         .iter()
         .map(|machine| {
-            compute_valid_combinations(&machine.buttons, &machine.lights)
-                .into_iter()
-                .map(|candidate| candidate.count_ones() as usize)
-                .min()
-                .unwrap()
+            compute_valid_combinations(
+                &machine
+                    .buttons
+                    .iter()
+                    .map(|b| indices_to_binary(b))
+                    .collect::<Vec<_>>(),
+                bools_to_binary(&machine.lights),
+            )
+            .into_iter()
+            .map(|candidate| candidate.count_ones() as usize)
+            .min()
+            .unwrap()
         })
         .sum::<usize>()
 }
 
-fn compute_lights(requirements: &[Joltage]) -> Vec<bool> {
-    requirements.iter().map(|&j| j % 2 == 1).collect()
+fn compute_lights(requirements: &[Joltage]) -> Binary {
+    bools_to_binary_impl(requirements.iter().rev().map(|&j| j % 2 == 1))
 }
 
 fn compute_delta(
     requirements: &[Joltage],
-    buttons: &[Vec<usize>],
+    buttons: &[Binary],
     combination: Binary,
 ) -> Vec<Joltage> {
     (0..buttons.len())
         .filter(|&b| contains(combination, b))
         .fold(vec![0; requirements.len()], |mut acc, b| {
-            for &index in &buttons[b] {
-                acc[index] += 1;
+            for index in 0..acc.len() {
+                if contains(buttons[b], index) {
+                    acc[index] += 1;
+                }
             }
             acc
         })
@@ -109,7 +118,7 @@ fn compute_delta(
 
 fn compute_new_requirements(
     requirements: &[Joltage],
-    buttons: &[Vec<usize>],
+    buttons: &[Binary],
     combination: Binary,
 ) -> Option<Vec<Joltage>> {
     let delta = compute_delta(requirements, buttons, combination);
@@ -126,12 +135,11 @@ fn compute_new_requirements(
     }
 }
 
-fn solve_joltage_impl(requirements: &[Joltage], buttons: &[Vec<usize>]) -> Option<usize> {
+fn solve_joltage_impl(requirements: &[Joltage], buttons: &[Binary]) -> Option<usize> {
     if requirements.iter().all(|&r| r == 0) {
         return Some(0);
     }
-    let lights = compute_lights(&requirements);
-    let combinations = compute_valid_combinations(&buttons, &lights);
+    let combinations = compute_valid_combinations(&buttons, compute_lights(&requirements));
     combinations
         .into_iter()
         .filter_map(|combination| {
@@ -144,7 +152,15 @@ fn solve_joltage_impl(requirements: &[Joltage], buttons: &[Vec<usize>]) -> Optio
 }
 
 fn solve_joltage(machine: &Machine) -> usize {
-    solve_joltage_impl(&machine.requirements, &machine.buttons).unwrap()
+    solve_joltage_impl(
+        &machine.requirements,
+        &machine
+            .buttons
+            .iter()
+            .map(|b| indices_to_binary(b))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
 }
 
 fn solve_part2(input: &Input) -> impl Display {
